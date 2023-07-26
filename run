@@ -1,0 +1,88 @@
+#!/bin/bash
+#
+#	template based on:  https://github.com/scitran-apps/fsl-bet/blob/master/run
+#
+
+CONTAINER="[captk-n4-bias-correction]"
+echo -e "$CONTAINER  Initiated"
+
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+
+###############################################################################
+## Built to flywheel-v0 spec.
+FLYWHEEL_BASE=/flywheel/v0
+OUTPUT_DIR=$FLYWHEEL_BASE/output
+im_DIR=$FLYWHEEL_BASE/input/image
+MANIFEST=$FLYWHEEL_BASE/manifest.json
+CONFIG_FILE=$FLYWHEEL_BASE/config.json
+
+###############################################################################
+## Configure the ENV
+export USER=Flywheel
+
+###############################################################################
+## Execute the main processes
+function jsonValue() {
+KEY=$1
+num=$2
+awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p
+}
+
+## get all user configurations
+if [[ -f $CONFIG_FILE ]]; then
+  echo "$CONTAINER  $CONFIG_FILE found. Loading config..."
+
+  output_fn="$(cat $CONFIG_FILE | jsonValue output_file_name)"
+
+else
+  echo "$CONTAINER  $CONFIG_FILE not found. Loading defaults from $MANIFEST..."
+
+  output_fn="$(cat $MANIFEST | jsonValue output_file_name default)"
+
+fi
+
+## Find the input files
+echo "$CONTAINER  Loading input files..."
+
+if [[ -d $im_DIR ]] ; then
+  im_file=$(find $im_DIR/* -maxdepth 0 -type f -name "*.nii*")
+fi
+
+## update output file name if user-defined
+out_path="output/"
+out_path+=$output_fn
+out_path="$(echo -e "${out_path}" | tr -d '[:space:]')" # remove spaces
+
+## If necessary input files are found, run the thing
+if [[ ! -z $im_file ]] ; then
+
+  CaPTk_dir=/opt/captk/1.8.1/usr # path to install (in Docker container)
+
+  echo "$CONTAINER  Running CaPTk N4 Bias Correction"
+  ${CaPTk_dir}/bin/Preprocessing \
+    -i "${im_file}" \
+    -o "${out_path}" \
+    -n4
+
+################# Finish up #################
+  if [[ ! -f $out_path ]] ; then # if output file is not found
+    echo "$CONTAINER  No output files!"
+    exit 1
+  else # if output file exists:
+    STATUS=0
+  fi
+else
+  echo "$CONTAINER  Input files not found!"
+  exit 1
+fi
+
+# Check exit status
+if [[ $STATUS == 0 ]] ; then
+    echo -e "$CONTAINER  Done!"
+  else
+    echo "$CONTAINER  command returned a non-zero exit code = [$STATUS]."
+    exit 1
+fi
+
+exit 0
